@@ -1,0 +1,144 @@
+# Simulation Configuration
+simulation:
+  # Data settings
+  data_path: "./data/trips/"
+  trip_data_format: "json"
+  trip_batch_size: 1000
+  
+  # Time settings
+  timestep: 60  # seconds
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  time_window: 300  # 5 minutes window for matching
+  
+  # Vehicle settings
+  num_vehicles: 100
+  max_capacity: 4
+  initial_distribution: "data_based"  # can be 'random' or 'data_based'
+  
+  # Geographic boundaries (based on your data)
+  service_area:
+    min_lat: 31.94
+    max_lat: 31.96
+    min_lon: 35.85
+    max_lon: 35.86
+    grid_size: 10  # 10x10 grid for spatial discretization
+
+# Matching Policy Configuration
+matching:
+  # Time constraints
+  max_wait_time: 300  # seconds
+  max_detour_ratio: 1.5  # maximum allowed detour factor
+  max_pickup_distance: 2000  # meters
+  
+  # Pooling constraints
+  min_sharing_probability: 0.2
+  max_additional_passengers: 3
+  
+  # Spatial indexing
+  grid_cell_size: 500  # meters
+  search_radius: 2000  # meters
+  
+  # Route optimization
+  route_optimization:
+    max_combinations: 20
+    timeout: 5  # seconds
+    recalculation_interval: 60  # seconds
+
+# DQN Policy Configuration
+dispatch:
+  # Network architecture
+  state_dim: 124
+  action_dim: 100
+  hidden_layers: [128, 64]
+  activation: "relu"
+  
+  # Learning parameters
+  learning_rate: 0.001
+  gamma: 0.95
+  epsilon: 1.0
+  epsilon_min: 0.01
+  epsilon_decay: 0.995
+  
+  # Memory settings
+  memory_size: 10000
+  batch_size: 32
+  priority_scale: 0.6
+  
+  # Training settings
+  target_update_frequency: 100
+  training_epochs: 100
+  min_experiences: 1000
+  
+  # Action space
+  action_grid_size: 10
+  max_action_distance: 5000  # meters
+
+# Valhalla Integration
+valhalla:
+  host: "localhost"
+  port: 8002
+  timeout: 5  # seconds
+  
+  # Route parameters
+  costing: "auto"
+  costing_options:
+    auto:
+      maneuver_penalty: 50
+      gate_cost: 30
+      toll_booth_cost: 15
+      country_crossing_cost: 600
+      
+  # Rate limiting
+  max_requests_per_second: 100
+  max_parallel_requests: 50
+  retry_count: 3
+  
+  # Caching
+  enable_cache: true
+  cache_size: 1000
+  cache_ttl: 3600  # seconds
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file_path: "./logs/simulation.log"
+  metrics_interval: 300  # seconds
+  
+  # Metrics to track
+  metrics:
+    - "matches"
+    - "total_wait_time"
+    - "total_travel_time"
+    - "total_distance"
+    - "requests_served"
+    - "requests_rejected"
+    - "vehicle_utilization"
+    - "pooling_rate"
+    - "average_reward"
+    - "learning_loss"
+
+# Data Processing
+processing:
+  # Preprocessing
+  clean_data: true
+  remove_outliers: true
+  outlier_std_threshold: 3
+  
+  # Feature engineering
+  time_features:
+    - "hour_of_day"
+    - "day_of_week"
+    - "is_weekend"
+    
+  # Demand prediction
+  demand_prediction:
+    window_size: 6
+    prediction_horizon: 2
+    update_frequency: 300  # seconds
+    
+  # Historical patterns
+  pattern_mining:
+    min_pattern_frequency: 0.1
+    max_pattern_length: 5
+    significance_level: 0.05
