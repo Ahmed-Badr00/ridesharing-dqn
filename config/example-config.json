@@ -1,0 +1,24 @@
+{
+  "data_path": "data/cleaned_trips.json",
+  "output_dir": "simulation_results",
+  
+  "num_vehicles": 100,
+  "max_capacity": 4,
+  "timestep": 60,
+  "max_time_window": 15,
+  "max_pickup_distance": 2000,
+  "max_detour_ratio": 1.5,
+  
+  "max_wait_time": 300,
+  "min_sharing_distance": 1000,
+  
+  "state_dim": 128,
+  "action_dim": 100,
+  "batch_size": 32,
+  "learning_rate": 0.001,
+  "gamma": 0.95,
+  "epsilon": 1.0,
+  "epsilon_decay": 0.995,
+  "epsilon_min": 0.01,
+  "memory_size": 10000
+}
