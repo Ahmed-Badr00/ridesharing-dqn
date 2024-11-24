@@ -240,15 +240,3 @@ If you use this code in your research, please cite:
   url={https://github.com/yourusername/ridesharing-dqn}
 }
 ```
-
-## Contact
-
-For questions and support:
-- Open an issue in the repository
-- Email: your.email@example.com
-
-## Acknowledgments
-
-- Valhalla routing engine
-- TensorFlow team
-- Original DQN implementation papers

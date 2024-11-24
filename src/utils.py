@@ -48,8 +48,9 @@ def convert_to_datetime(week_id: int, date_id: int, time_id: float) -> datetime:
     
     week_offset = timedelta(weeks=week_id)
     day_offset = timedelta(days=date_id - 1)
-    hours = int(time_id)
-    minutes = int((time_id % 1) * 60)
+    total_minutes = int(time_id)
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
     
     return base_date + week_offset + day_offset + timedelta(hours=hours, minutes=minutes)
 

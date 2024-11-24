@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+import tensorflow as tf
 import os
 from .config import SimulationConfig
 from .simulator_driver import SimulatorDriver
@@ -14,8 +15,9 @@ def setup_logging(debug: bool = False) -> None:
 
 def main():
     # Create config with just the required data_path
+    print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
     config = SimulationConfig(
-        data_path="data/cleaned_trips.json"  # Modify this to your data path
+        data_path="data/extracted_trips_01_25.json"  # Modify this to your data path
     )
     
     # Setup basic logging

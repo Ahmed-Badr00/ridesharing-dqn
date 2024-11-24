@@ -10,21 +10,18 @@ from datetime import datetime
 from .types import Vehicle, Request, ServiceArea
 from .utils import calculate_distance, get_route, create_grid_index
 
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+
 class State:
-    def __init__(self,
-                 vehicle_location: Tuple[float, float],
-                 demand_matrix: np.ndarray,
-                 nearby_vehicles: List[Tuple[float, float]],
-                 time_of_day: int,
-                 current_time: datetime):
-        self.vehicle_location = vehicle_location
-        self.demand_matrix = demand_matrix
-        self.nearby_vehicles = nearby_vehicles
-        self.time_of_day = time_of_day
-        self.current_time = current_time
+    """State representation for DQN"""
+    vehicle_location: Tuple[float, float]
+    demand_matrix: np.ndarray
+    nearby_vehicles: List[Tuple[float, float]]
+    time_of_day: int
+    current_time: datetime
 
     def to_vector(self, state_dim: int) -> np.ndarray:
-        """Convert state to vector representation with padding to match state_dim"""
+        """Convert state to vector representation with dimensionality state_dim"""
         # Location features
         loc_features = list(self.vehicle_location)
         
@@ -47,12 +44,14 @@ class State:
         
         # Vehicle density features
         if self.nearby_vehicles:
+            nearby_x = [v[0] for v in self.nearby_vehicles]
+            nearby_y = [v[1] for v in self.nearby_vehicles]
             density_features = [
                 len(self.nearby_vehicles),  # number of nearby vehicles
-                np.mean([v[0] for v in self.nearby_vehicles]),  # mean lat
-                np.mean([v[1] for v in self.nearby_vehicles]),  # mean lon
-                np.std([v[0] for v in self.nearby_vehicles]),   # lat spread
-                np.std([v[1] for v in self.nearby_vehicles])    # lon spread
+                np.mean(nearby_x),  # mean lat
+                np.mean(nearby_y),  # mean lon
+                np.std(nearby_x) if len(nearby_x) > 1 else 0,   # lat spread
+                np.std(nearby_y) if len(nearby_y) > 1 else 0    # lon spread
             ]
         else:
             density_features = [0, 0, 0, 0, 0]
@@ -60,15 +59,15 @@ class State:
         # Combine all features
         full_features = loc_features + demand_features + time_features + density_features
         
-        # Pad or trim the feature vector to match the expected state_dim
+        # Pad or trim to match state_dim
         if len(full_features) < state_dim:
-            # Pad with zeros if not enough features
-            full_features = np.pad(full_features, (0, state_dim - len(full_features)), 'constant')
+            full_features = np.pad(full_features, (0, state_dim - len(full_features)), 
+                                 mode='constant', constant_values=0)
         else:
-            # Trim if there are too many features
             full_features = full_features[:state_dim]
         
-        return np.array(full_features)
+        return np.array(full_features, dtype=np.float32)
+        
 
 class Action:
     def __init__(self, target_location: Tuple[float, float], expected_value: float = 0.0):
@@ -84,10 +83,23 @@ class DQNDispatchPolicy:
                  epsilon: float = 1.0,
                  epsilon_decay: float = 0.995,
                  epsilon_min: float = 0.01,
-                 memory_size: int = 10000,
-                 batch_size: int = 32,
-                 service_area: Optional[ServiceArea] = None):  # Add service_area as an optional parameter
-
+                 memory_size: int = 2000,
+                 batch_size: int = 8,
+                 service_area: Optional[ServiceArea] = None):
+        """Initialize DQN policy with GPU optimization"""
+        
+        # Set TensorFlow logging
+        tf.get_logger().setLevel('ERROR')
+        
+        # Configure GPU memory growth
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                logging.info(f"Using GPU: {gpus[0].name}")
+            except RuntimeError as e:
+                logging.warning(f"GPU memory growth configuration failed: {e}")
         
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -102,7 +114,7 @@ class DQNDispatchPolicy:
         # Experience replay memory
         self.memory = deque(maxlen=memory_size)
         
-        # Build networks
+        # Build networks with optimized configuration
         self.q_network = self._build_network()
         self.target_network = self._build_network()
         self.update_target_network()
@@ -122,30 +134,49 @@ class DQNDispatchPolicy:
             'epsilon_history': [],
             'q_values': []
         }
-
+        
     def _build_network(self) -> tf.keras.Model:
-        """Build neural network for Q-function approximation"""
+        """Build neural network with optimized configuration"""
         initializer = tf.keras.initializers.HeUniform()
         
-        model = tf.keras.Sequential([
-            tf.keras.layers.Dense(128, activation='relu', input_shape=(self.state_dim,),
-                                kernel_initializer=initializer),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.2),
-            
-            tf.keras.layers.Dense(64, activation='relu',
-                                kernel_initializer=initializer),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.2),
-            
-            tf.keras.layers.Dense(self.action_dim, activation='linear',
-                                kernel_initializer=initializer)
-        ])
+        inputs = tf.keras.layers.Input(shape=(self.state_dim,))
         
-        optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
-        model.compile(optimizer=optimizer, loss='mse')
+        x = tf.keras.layers.Dense(
+            128, activation='relu',
+            kernel_initializer=initializer,
+            name='dense_1'
+        )(inputs)
+        x = tf.keras.layers.BatchNormalization(name='batch_norm_1')(x)
+        x = tf.keras.layers.Dropout(0.2, name='dropout_1')(x)
+        
+        x = tf.keras.layers.Dense(
+            64, activation='relu',
+            kernel_initializer=initializer,
+            name='dense_2'
+        )(x)
+        x = tf.keras.layers.BatchNormalization(name='batch_norm_2')(x)
+        x = tf.keras.layers.Dropout(0.2, name='dropout_2')(x)
+        
+        outputs = tf.keras.layers.Dense(
+            self.action_dim, activation='linear',
+            kernel_initializer=initializer,
+            name='output'
+        )(x)
+        
+        model = tf.keras.Model(inputs=inputs, outputs=outputs, name='dqn')
+        
+        optimizer = tf.keras.optimizers.Adam(
+            learning_rate=self.learning_rate,
+            clipnorm=1.0  # Gradient clipping
+        )
+        
+        model.compile(
+            optimizer=optimizer,
+            loss='mse',
+            metrics=['mae']
+        )
+        
         return model
-
     def _create_action_grid(self) -> List[Tuple[float, float]]:
         """Create grid of possible target locations"""
         locations = []
@@ -211,58 +242,67 @@ class DQNDispatchPolicy:
         )
 
     def train(self, batch_size: Optional[int] = None) -> float:
-        """Train the network using experience replay"""
-        if batch_size is None:
-            batch_size = self.batch_size
+            """Train the network using experience replay"""
+            if batch_size is None:
+                batch_size = self.batch_size
+                
+            if len(self.memory) < batch_size:
+                return 0.0
             
-        if len(self.memory) < batch_size:
-            return 0.0
-        
-        # Sample batch with priority
-        batch = self._priority_sample(batch_size)
-        
-        # Prepare batch data
-        states = np.array([exp[0].to_vector(self.state_dim) for exp in batch])
-        next_states = np.array([exp[3].to_vector(self.state_dim) for exp in batch])
-        
-        # Current Q-values
-        current_q_values = self.q_network.predict(states)
-        
-        # Next Q-values (from target network)
-        next_q_values = self.target_network.predict(next_states)
-        
-        # Update Q-values with Double DQN
-        for i, (state, action, reward, next_state, done) in enumerate(batch):
-            if done:
-                target = reward
-            else:
-                # Double DQN: use main network to select action, target network to evaluate
-                next_action = np.argmax(self.q_network.predict(next_state.to_vector(self.state_dim).reshape(1, -1))[0])
-                target = reward + self.gamma * next_q_values[i][next_action]
+            # Sample batch with priority
+            batch = self._priority_sample(batch_size)
             
-            current_q_values[i][self._location_to_idx(action.target_location)] = target
+            try:
+                # Prepare batch data
+                states = np.array([exp[0].to_vector(self.state_dim) for exp in batch])
+                next_states = np.array([exp[3].to_vector(self.state_dim) for exp in batch])
+                
+                # Current Q-values
+                current_q_values = self.q_network.predict(states, verbose=0)
+                
+                # Next Q-values (from target network)
+                next_q_values = self.target_network.predict(next_states, verbose=0)
+                
+                # Update Q-values with Double DQN
+                for i, (state, action, reward, next_state, done) in enumerate(batch):
+                    if done:
+                        target = reward
+                    else:
+                        # Double DQN: use main network to select action, target network to evaluate
+                        next_state_vector = next_state.to_vector(self.state_dim).reshape(1, -1)
+                        next_action = np.argmax(self.q_network.predict(next_state_vector, verbose=0)[0])
+                        target = reward + self.gamma * next_q_values[i][next_action]
+                    
+                    current_q_values[i][self._location_to_idx(action.target_location)] = target
+                
+                # Train network
+                history = self.q_network.fit(
+                    states, current_q_values,
+                    batch_size=batch_size,
+                    epochs=1,
+                    verbose=0
+                )
+                loss = float(history.history['loss'][0])
+                
+                # Track metrics
+                self.stats['training_loss'].append(loss)
+                
+                # Update target network periodically
+                if len(self.memory) % 100 == 0:
+                    self.update_target_network()
+                
+                # Decay epsilon
+                if self.epsilon > self.epsilon_min:
+                    self.epsilon *= self.epsilon_decay
+                    self.stats['epsilon_history'].append(self.epsilon)
+                
+                return loss
+                
+            except Exception as e:
+                logging.error(f"Error in DQN training: {e}")
+                return 0.0
         
-        # Train network
-        history = self.q_network.fit(states, current_q_values, 
-                                   epochs=1, verbose=0)
-        loss = history.history['loss'][0]
         
-        # Track metrics
-        self.stats['training_loss'].append(loss)
-        
-        # Update target network periodically
-        if len(self.memory) % 100 == 0:
-            self.update_target_network()
-        
-        # Decay epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-            self.stats['epsilon_history'].append(self.epsilon)
-        logging.info(f"Training loss: {loss}")
-        logging.info(f"Current epsilon: {self.epsilon}")
- 
-        return loss
-
     def remember(self, state: State, action: Action, reward: float,
                 next_state: State, done: bool) -> None:
         """Store experience in replay memory"""
@@ -316,7 +356,9 @@ class DQNDispatchPolicy:
         return np.argmin(distances)
 
     def save_model(self, path: str) -> None:
-        """Save the Q-network model"""
+        """Save the Q-network model with a valid extension."""
+        if not path.endswith(('.keras', '.h5')):
+            path += '.keras'  # Default to the recommended `.keras` extension.
         self.q_network.save(path)
         
     def load_model(self, path: str) -> None:

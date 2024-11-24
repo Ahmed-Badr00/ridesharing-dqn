@@ -1,16 +1,25 @@
 import json
-import pandas as pd
 import numpy as np
-import os
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 
 class DataExtractor:
-    def __init__(self, input_dir: str, output_dir: str):
-        """Initialize data extractor"""
-        self.input_dir = input_dir
-        self.output_dir = output_dir
+    def __init__(self, input_file: str, output_file: str):
+        """Initialize data extractor
+        
+        Args:
+            input_file (str): Path to input JSON file
+            output_file (str): Path to output JSON file
+        """
+        self.input_file = input_file
+        self.output_file = output_file
+        
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
     def extract_trip_data(self, trip_data: dict) -> dict:
         """Extract key points from individual trip data without validation"""
@@ -54,15 +63,16 @@ class DataExtractor:
             return None
 
     def extract_data(self):
-        """Extract all data files without validation"""
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
+        """Extract data from single JSON file"""
+        if not os.path.exists(self.input_file):
+            logging.error(f"Input file {self.input_file} not found")
+            return None
             
         extracted_trips = []
         stats = {
             'total_trips': 0,
             'processed_trips': 0,
-            'hourly_distribution': {str(h): 0 for h in range(24)},  # Convert hour to string
+            'hourly_distribution': {str(h): 0 for h in range(24)},
             'distance_stats': {
                 'min': float('inf'),
                 'max': 0,
@@ -77,15 +87,10 @@ class DataExtractor:
             }
         }
         
-        # Process each input file
-        for filename in os.listdir(self.input_dir):
-            if not filename.endswith('.json'):
-                continue
-                
-            input_path = os.path.join(self.input_dir, filename)
-            logging.info(f"Processing {filename}")
-            
-            with open(input_path, 'r') as f:
+        logging.info(f"Processing {self.input_file}")
+        
+        try:
+            with open(self.input_file, 'r') as f:
                 for line in f:
                     try:
                         stats['total_trips'] += 1
@@ -97,7 +102,7 @@ class DataExtractor:
                             stats['processed_trips'] += 1
                             
                             # Update statistics
-                            hour = str(int(trip_data['timeID'] % 24))  # Convert to string
+                            hour = str(int(trip_data['timeID'] % 24))
                             stats['hourly_distribution'][hour] += 1
                             
                             stats['distance_stats']['min'] = min(
@@ -121,31 +126,44 @@ class DataExtractor:
                             stats['duration_stats']['total'] += extracted_trip['trip_duration']
                             
                     except json.JSONDecodeError as e:
-                        logging.error(f"Error decoding JSON in {filename}: {e}")
+                        logging.error(f"Error decoding JSON: {e}")
                         continue
-        
-        # Calculate averages
-        if stats['processed_trips'] > 0:
-            stats['distance_stats']['avg'] = stats['distance_stats']['total'] / stats['processed_trips']
-            stats['duration_stats']['avg'] = stats['duration_stats']['total'] / stats['processed_trips']
-        
-        # Save extracted data
-        output_file = os.path.join(self.output_dir, 'extracted_trips.json')
-        with open(output_file, 'w') as f:
-            json.dump(extracted_trips, f, indent=2)
+                        
+            # Calculate averages if we have processed any trips
+            if stats['processed_trips'] > 0:
+                stats['distance_stats']['avg'] = stats['distance_stats']['total'] / stats['processed_trips']
+                stats['duration_stats']['avg'] = stats['duration_stats']['total'] / stats['processed_trips']
             
-        # Save statistics
-        stats_file = os.path.join(self.output_dir, 'extraction_stats.json')
-        with open(stats_file, 'w') as f:
-            json.dump(stats, f, indent=2)
+                # Reset min values if no trips were processed
+                if stats['distance_stats']['min'] == float('inf'):
+                    stats['distance_stats']['min'] = 0
+                if stats['duration_stats']['min'] == float('inf'):
+                    stats['duration_stats']['min'] = 0
             
-        logging.info(f"Extraction completed. Processed {stats['processed_trips']} trips from {stats['total_trips']} total trips.")
-        
-        return extracted_trips
+            # Save extracted trips
+            logging.info(f"Saving extracted trips to {self.output_file}")
+            with open(self.output_file, 'w') as f:
+                json.dump(extracted_trips, f, indent=2)
+            
+            # Save statistics to a separate file
+            output_base = os.path.splitext(self.output_file)[0]
+            stats_file = f"{output_base}_stats.json"
+            logging.info(f"Saving statistics to {stats_file}")
+            with open(stats_file, 'w') as f:
+                json.dump(stats, f, indent=2)
+            
+            logging.info(f"Extraction completed. Processed {stats['processed_trips']} trips from {stats['total_trips']} total trips.")
+            
+            return extracted_trips
+            
+        except Exception as e:
+            logging.error(f"Error processing file: {e}")
+            return None
 
 if __name__ == "__main__":
-    extractor = DataExtractor(
-        input_dir="data/",
-        output_dir="data/extracted_data"
-    )
+    # Example usage with explicit paths
+    input_file = "data/Segmented_Trips_01_25.json"  # Replace with your input file path
+    output_file = "extracted_trips_01_25.json"  # Replace with your desired output path
+    
+    extractor = DataExtractor(input_file, output_file)
     extracted_trips = extractor.extract_data()

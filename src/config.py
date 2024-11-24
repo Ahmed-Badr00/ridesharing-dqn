@@ -24,13 +24,13 @@ class SimulationConfig:
     # DQN parameters
     state_dim: int = 128
     action_dim: int = 100
-    batch_size: int = 32
+    batch_size: int = 8
     learning_rate: float = 0.001
     gamma: float = 0.95
     epsilon: float = 1.0
     epsilon_decay: float = 0.995
     epsilon_min: float = 0.01
-    memory_size: int = 10000
+    memory_size: int = 2000
     
     # Service area (Amman)
     min_lat: float = 31.668

@@ -116,7 +116,6 @@ class SimulationMetrics:
             'avg_occupancy': round(self.avg_occupancy, 2),
             'vehicle_utilization': round(self.vehicle_utilization, 3)
         }
-
 @dataclass
 class State:
     """State representation for DQN"""
@@ -126,44 +125,64 @@ class State:
     time_of_day: int
     current_time: datetime
 
-    def to_vector(self) -> np.ndarray:
+    def to_vector(self, state_dim: int) -> np.ndarray:
         """Convert state to vector representation"""
-        # Location features
-        loc_features = list(self.vehicle_location)
-        
-        # Demand features
-        demand_flat = self.demand_matrix.flatten()
-        demand_features = [
-            np.mean(demand_flat),
-            np.max(demand_flat),
-            np.sum(demand_flat),
-            *demand_flat
-        ]
-        
-        # Time features
-        hour = self.time_of_day
-        time_features = [
-            np.sin(2 * np.pi * hour / 24),
-            np.cos(2 * np.pi * hour / 24),
-            hour / 24
-        ]
-        
-        # Vehicle density features
-        if self.nearby_vehicles:
-            nearby_x = [v[0] for v in self.nearby_vehicles]
-            nearby_y = [v[1] for v in self.nearby_vehicles]
-            density_features = [
-                len(self.nearby_vehicles),
-                np.mean(nearby_x),
-                np.mean(nearby_y),
-                np.std(nearby_x),
-                np.std(nearby_y)
+        try:
+            # Location features
+            loc_features = list(self.vehicle_location)
+            
+            # Demand features (ensure it's 2D and flatten)
+            if len(self.demand_matrix.shape) != 2:
+                raise ValueError(f"Demand matrix should be 2D, got shape {self.demand_matrix.shape}")
+            demand_flat = self.demand_matrix.flatten()
+            demand_features = [
+                float(np.mean(demand_flat)),
+                float(np.max(demand_flat)),
+                float(np.sum(demand_flat))
             ]
-        else:
-            density_features = [0, 0, 0, 0, 0]
+            demand_features.extend(demand_flat.tolist())
+            
+            # Time features
+            hour = float(self.time_of_day)
+            time_features = [
+                np.sin(2 * np.pi * hour / 24),
+                np.cos(2 * np.pi * hour / 24),
+                hour / 24
+            ]
+            
+            # Vehicle density features
+            if self.nearby_vehicles:
+                nearby_x = [float(v[0]) for v in self.nearby_vehicles]
+                nearby_y = [float(v[1]) for v in self.nearby_vehicles]
+                density_features = [
+                    float(len(self.nearby_vehicles)),
+                    float(np.mean(nearby_x)),
+                    float(np.mean(nearby_y)),
+                    float(np.std(nearby_x)) if len(nearby_x) > 1 else 0.0,
+                    float(np.std(nearby_y)) if len(nearby_y) > 1 else 0.0
+                ]
+            else:
+                density_features = [0.0, 0.0, 0.0, 0.0, 0.0]
+            
+            # Combine all features
+            full_features = loc_features + demand_features + time_features + density_features
+            
+            # Convert to numpy array and ensure float32 type
+            feature_array = np.array(full_features, dtype=np.float32)
+            
+            # Pad or trim to match state_dim
+            if len(feature_array) < state_dim:
+                padded = np.zeros(state_dim, dtype=np.float32)
+                padded[:len(feature_array)] = feature_array
+                return padded
+            else:
+                return feature_array[:state_dim]
+                
+        except Exception as e:
+            logging.error(f"Error in State.to_vector: {e}")
+            # Return zero vector in case of error
+            return np.zeros(state_dim, dtype=np.float32)
         
-        return np.array(loc_features + demand_features + time_features + density_features)
-
 @dataclass
 class Action:
     """Action representation for DQN"""
